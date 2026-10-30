@@ -1,0 +1,60 @@
+variables:
+  GIT_DEPTH: 0
+image: node:20
+
+stages:
+  - deploy
+
+default:
+  tags:
+    - docker
+
+deploy:
+  stage: deploy
+  script:
+    - echo "instalando despendencias de sistema";
+    - npm install
+    - npm install -g @sap/cds
+    - npm install -g mbt
+    - apt-get update && apt-get install -y wget gnupg
+    - mkdir -p /usr/share/keyrings
+    - wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | gpg --dearmor -o /usr/share/keyrings/cli.cloudfoundry.org.gpg
+    - echo "deb [signed-by=/usr/share/keyrings/cli.cloudfoundry.org.gpg] https://packages.cloudfoundry.org/debian stable main" > /etc/apt/sources.list.d/cloudfoundry-cli.list
+    - apt-get update && apt-get install -y jq cf8-cli
+    - cf --version
+    - export ENVIRONMENT="dev";
+    - if [ "$CI_COMMIT_BRANCH" == "master" ]; then 
+        export LOGIN_BTP="${LOGIN_BTP_PRD}"; 
+        export PASSWORD_BTP="${PASSWORD_BTP_PRD}"; 
+        export DEPLOY_BTP="${DEPLOY_BTP_PRD}"; 
+        export ORGANIZACION_DEPLOY_BTP="${ORGANIZACION_DEPLOY_BTP_PRD}"; 
+        export ENVIRONMENT_DEPLOY_BTP="${ENVIRONMENT_DEPLOY_PRD}"; 
+        export DESTINATION_FIORI="${DESTINATION_FIORI_PRD}";
+        export CLIENT_ID="${CLIENT_ID_PRD}"; 
+        export DATABASE_ID="${DATABASE_ID_PRD}";
+      fi
+    - if [ "$CI_COMMIT_BRANCH" == "QA" ]; then 
+        export LOGIN_BTP="${LOGIN_BTP_QA}"; 
+        export PASSWORD_BTP="${PASSWORD_BTP_QA}"; 
+        export DEPLOY_BTP="${DEPLOY_BTP_QA}"; 
+        export ORGANIZACION_DEPLOY_BTP="${ORGANIZACION_DEPLOY_BTP_QA}"; 
+        export ENVIRONMENT_DEPLOY_BTP="${ENVIRONMENT_DEPLOY_QA}"; 
+        export ENVIRONMENT_DEPLOY_BTP="${ENVIRONMENT_DEPLOY_QA}"; 
+        export DESTINATION_FIORI="${DESTINATION_FIORI_QA}"; 
+        export CLIENT_ID="${CLIENT_ID_QA}"; 
+        export DATABASE_ID="${DATABASE_ID_QA}";
+      fi
+    - sed -i 's/CHANGEME_DATABASE_ID/'"${DATABASE_ID}"'/g' mta.yaml;
+    - sed -i 's/CHANGEME_DESTINATION_FIORI/'"${DESTINATION_FIORI}"'/g' package.json;
+    - sed -i 's/CHANGEME_CLIENT_ID/'"${CLIENT_ID}"'/g' srv/services.js;
+    - cf login -u "${LOGIN_BTP}" -p "${PASSWORD_BTP}" -a "${DEPLOY_BTP}" -o "${ORGANIZACION_DEPLOY_BTP}" -s "${ENVIRONMENT_DEPLOY_BTP}"
+    - npx cds build --production
+    - npx mbt build; sleep 2;
+    - cf add-plugin-repo CF-Community https://plugins.cloudfoundry.org  
+    - cf install-plugin -f multiapps
+    - cf deploy mta_archives/PORTALPROVEEDORES_CAP_1.0.0.mtar -f
+  only:
+    - master
+    - develop
+    - QA
+  
